@@ -2,7 +2,7 @@
 
 **Your AI conversations compile themselves into a searchable knowledge base.**
 
-Works with both **Claude Code** and **OpenAI Codex CLI**. Adapted from [Karpathy's LLM Knowledge Base](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) architecture, but instead of clipping web articles, the raw data is your own AI coding conversations. When a session ends (or auto-compacts mid-session), hooks capture the conversation transcript and spawn a background process that uses the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) to extract the important stuff - decisions, lessons learned, patterns, gotchas - and appends it to a daily log. You then compile those daily logs into structured, cross-referenced knowledge articles organized by concept. Retrieval uses a simple index file instead of RAG - no vector database, no embeddings, just markdown.
+Works with **Claude Code**, **OpenAI Codex CLI**, and **OpenCode CLI**. Adapted from [Karpathy's LLM Knowledge Base](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) architecture, but instead of clipping web articles, the raw data is your own AI coding conversations. When a session ends (or auto-compacts mid-session), hooks capture the conversation transcript and spawn a background process that uses the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) to extract the important stuff - decisions, lessons learned, patterns, gotchas - and appends it to a daily log. You then compile those daily logs into structured, cross-referenced knowledge articles organized by concept. Retrieval uses a simple index file instead of RAG - no vector database, no embeddings, just markdown.
 
 Anthropic has clarified that personal use of the Claude Agent SDK is covered under your existing Claude subscription (Max, Team, or Enterprise) - no separate API credits needed.
 
@@ -36,6 +36,25 @@ Anthropic has clarified that personal use of the Claude Agent SDK is covered und
 
 3. The repo-local hooks in `.codex/hooks.json` activate automatically when you run Codex in this project.
 
+### OpenCode CLI/TUI
+
+1. Clone this repo into your project:
+   ```bash
+   git clone https://github.com/paulboutin/AI-Wiki-knowledge.git
+   cd AI-Wiki-knowledge
+   uv sync
+   ```
+
+2. Verify your setup:
+   ```bash
+   uv run python scripts/check-deps.py
+   ```
+   This checks for Python 3.12+, `uv`, `bun`, and OpenCode version compatibility.
+
+3. The plugin in `.opencode/plugins/` activates automatically when you run OpenCode in this project.
+
+   **Note:** Hooks only work with the CLI/TUI version, not the web version.
+
 From there, your conversations start accumulating. After 6 PM local time, the next session flush automatically triggers compilation of that day's logs into knowledge articles. You can also run `uv run python scripts/compile.py` manually at any time.
 
 ## How It Works
@@ -64,15 +83,21 @@ uv run python scripts/lint.py --structural-only      # free structural checks on
 
 ## Platform Comparison
 
-| Feature | Claude Code | Codex CLI |
-|---------|-------------|-----------|
-| Session start context injection | SessionStart hook | SessionStart hook |
-| Session end capture | SessionEnd hook | Stop hook |
-| Pre-compaction safety net | PreCompact hook | Not available |
-| Hook config | `.claude/settings.json` | `.codex/hooks.json` + `config.toml` flag |
-| Transcript format | JSONL | JSONL |
+| Feature | Claude Code | Codex CLI | OpenCode CLI/TUI |
+|---------|-------------|-----------|------------------|
+| Session start context injection | SessionStart hook | SessionStart hook | session.start hook |
+| Session end capture | SessionEnd hook | Stop hook | session.stopping hook |
+| Pre-compaction safety net | PreCompact hook | Not available | Not available |
+| Fallback | N/A | N/A | tool.execute.after |
+| Hook config | `.claude/settings.json` | `.codex/hooks.json` + `config.toml` flag | `.opencode/plugins/` (auto-discover) |
+| Transcript format | JSONL | JSONL | JSONL |
+| Web support | N/A | N/A | No (CLI/TUI only) |
 
-**Note:** Codex does not have a `PreCompact` event equivalent. Long-running Codex sessions may lose intermediate context to auto-compaction before the `Stop` hook fires. For critical sessions, run `compile.py` manually before the session ends.
+**Notes:**
+- Codex does not have a `PreCompact` event equivalent. Long-running Codex sessions may lose intermediate context to auto-compaction before the `Stop` hook fires.
+- OpenCode's `session.start` and `session.stopping` hooks require OpenCode 0.2.0+. The `tool.execute.after` fallback works on older versions.
+- OpenCode hooks only work with the CLI/TUI version, not the web version.
+- For critical sessions on any platform, run `compile.py` manually before the session ends.
 
 ## Why No RAG?
 

@@ -27,6 +27,9 @@ scripts/uv.lock
 # Codex local settings
 .codex/config.local.toml
 
+# OpenCode local settings
+.opencode/config.local.json
+
 # OS files
 .DS_Store
 Thumbs.db

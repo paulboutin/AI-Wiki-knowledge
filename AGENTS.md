@@ -294,6 +294,10 @@ ai-wiki-knowledge/
 |   |-- settings.json                # Claude Code hook configuration
 |-- .codex/
 |   |-- hooks.json                   # Codex CLI hook configuration
+|-- .opencode/
+|   |-- plugins/
+|   |   |-- knowledge-base.ts        # OpenCode plugin (TypeScript)
+|   |-- package.json                 # Empty, for future deps
 |-- .gitignore                       # Excludes runtime state, temp files, caches
 |-- AGENTS.md                        # This file - schema + full technical reference
 |-- README.md                        # Concise overview + quick start
@@ -310,6 +314,7 @@ ai-wiki-knowledge/
 |   |-- query.py                     #   Ask questions (index-guided, no RAG)
 |   |-- lint.py                      #   7 health checks
 |   |-- flush.py                     #   Extract memories from conversations (background)
+|   |-- check-deps.py                #   Cross-platform dependency checker
 |   |-- config.py                    #   Path constants
 |   |-- utils.py                     #   Shared helpers
 |-- hooks/
@@ -318,8 +323,11 @@ ai-wiki-knowledge/
 |   |   |-- session-end.py           #   Extracts conversation -> daily log
 |   |   |-- pre-compact.py           #   Safety net: captures context before compaction
 |   |-- codex/                       # Codex CLI hooks
+|   |   |-- session-start.py         #   Injects knowledge into every session
+|   |   |-- stop.py                  #   Extracts conversation -> daily log (Stop event)
+|   |-- opencode/                    # OpenCode CLI/TUI hooks
 |       |-- session-start.py         #   Injects knowledge into every session
-|       |-- stop.py                  #   Extracts conversation -> daily log (Stop event)
+|       |-- stop.py                  #   Extracts conversation -> daily log
 |-- reports/                         # Lint reports (gitignored)
 ```
 
@@ -420,11 +428,53 @@ Codex discovers hooks from `.codex/hooks.json` next to active config layers. Com
 
 **No PreCompact equivalent in Codex:** Codex does not have a pre-compaction event. Long-running Codex sessions may lose intermediate context to auto-compaction before the Stop hook fires. For critical sessions, run `compile.py` manually before the session ends.
 
+#### OpenCode CLI/TUI Hooks
+
+OpenCode uses a TypeScript plugin system (`.opencode/plugins/knowledge-base.ts`) instead of JSON-configured hooks. The plugin auto-discovers from the `.opencode/plugins/` directory — no config file needed.
+
+**Plugin architecture:**
+- Written in TypeScript, runs on Bun (OpenCode's plugin runtime)
+- Uses `Bun.spawn()` to call Python hook scripts in `hooks/opencode/`
+- All hook calls have timeout protection (10s for session.start, 30s for stop hooks)
+- Session end detection has a fallback via `tool.execute.after`
+
+**`session-start.py`** (session.start)
+- Same logic as Claude/Codex versions
+- Outputs JSON: `{"hookEventName": "SessionStart", "additionalContext": "..."}`
+- Plugin injects context as `additionalInstructions` in the session input
+- 10-second timeout wrapper in the plugin
+
+**`stop.py`** (session.stopping - primary)
+- Same architecture as Codex stop hook
+- Receives session_id as command line argument from the plugin
+- Locates transcript at `~/.local/share/opencode/{sessionID}.jsonl`
+- Also checks project-specific (`<project-slug>/storage/`) and global (`global/storage/`) paths
+- Extracts conversation context, spawns `flush.py` as detached background process
+- 30-second timeout wrapper in the plugin
+
+**`tool.execute.after`** (fallback)
+- Fires after every tool execution
+- Detects session-ending patterns: `exit`, `quit`, `end_session`, `close` tool calls
+- Checks `scripts/last-flush.json` for deduplication before spawning stop.py
+- Ensures memory capture even on older OpenCode versions without session.stopping
+
+**No PreCompact equivalent in OpenCode:** Same limitation as Codex.
+
+**Web version not supported:** OpenCode hooks only work with the CLI/TUI version. The web version runs on a remote server and does not support local plugins.
+
+**Dependency requirements:**
+- **Python 3.12+** — for hook scripts
+- **uv** — Python package manager (runs hook scripts)
+- **bun** — JavaScript runtime (required by OpenCode for plugins)
+- **OpenCode 0.2.0+** — for session.start and session.stopping hooks (tool.execute.after fallback works on older versions)
+
+Run `uv run python scripts/check-deps.py` to verify all dependencies are installed.
+
 ### Background Flush Process (`flush.py`)
 
-Spawned by both Claude and Codex hooks as a fully detached background process:
+Spawned by Claude, Codex, and OpenCode hooks as a fully detached background process:
 - **Windows:** `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS` flags
-- **Mac/Linux:** `start_new_session=True`
+- **Mac/Linux:** `start_new_session=True` (Claude/Codex) or `child.unref()` (OpenCode)
 
 This ensures flush.py survives after the hook process exits.
 
@@ -440,7 +490,7 @@ This ensures flush.py survives after the hook process exits.
 
 ### JSONL Transcript Format
 
-Both Claude Code and Codex store conversations as `.jsonl` files. Messages are nested under a `message` key:
+All three platforms store conversations as `.jsonl` files. Messages are nested under a `message` key:
 
 ```python
 entry = json.loads(line)
@@ -451,18 +501,26 @@ content = msg.get("content", "")  # string or list of content blocks
 
 Content can be a string or a list of blocks (`{"type": "text", "text": "..."}` dicts).
 
+**Transcript locations by platform:**
+- **Claude Code:** Provided via `transcript_path` in hook stdin
+- **Codex CLI:** Provided via `transcript_path` in hook stdin
+- **OpenCode:** `~/.local/share/opencode/{sessionID}.jsonl` (or project-specific/global subdirectories)
+
 ### Platform Comparison
 
-| Aspect | Claude Code | Codex CLI |
-|--------|-------------|-----------|
-| Session start | SessionStart | SessionStart |
-| Session end | SessionEnd | Stop |
-| Pre-compaction | PreCompact | Not available |
-| Config file | `.claude/settings.json` | `.codex/hooks.json` + `config.toml` flag |
-| Hook input | JSON on stdin | JSON on stdin |
-| Hook output | JSON on stdout | JSON on stdout |
-| Transcript | JSONL format | JSONL format |
-| Feature flag | None (always on) | `codex_hooks = true` in config.toml |
+| Aspect | Claude Code | Codex CLI | OpenCode CLI/TUI |
+|--------|-------------|-----------|------------------|
+| Session start | SessionStart | SessionStart | session.start |
+| Session end | SessionEnd | Stop | session.stopping |
+| Pre-compaction | PreCompact | Not available | Not available |
+| Fallback | N/A | N/A | tool.execute.after |
+| Config file | `.claude/settings.json` | `.codex/hooks.json` + `config.toml` flag | `.opencode/plugins/` (auto-discover) |
+| Hook input | JSON on stdin | JSON on stdin | Plugin context object |
+| Hook output | JSON on stdout | JSON on stdout | additionalInstructions |
+| Transcript | JSONL format | JSONL format | JSONL format |
+| Feature flag | None (always on) | `codex_hooks = true` in config.toml | None (auto-discover) |
+| Runtime | Python | Python | TypeScript (Bun) → Python |
+| Web support | N/A | N/A | No (CLI/TUI only) |
 
 ---
 
@@ -553,6 +611,8 @@ Both are gitignored and regenerated automatically.
 
 ## Dependencies
 
+### Python (all platforms)
+
 `pyproject.toml` (at project root):
 - `claude-agent-sdk>=0.1.29` - Claude Agent SDK for LLM calls with tool use
 - `python-dotenv>=1.0.0` - Environment variable management
@@ -560,6 +620,13 @@ Both are gitignored and regenerated automatically.
 - Python 3.12+, managed by [uv](https://docs.astral.sh/uv/)
 
 No API key needed - uses Claude Code's built-in credentials at `~/.claude/.credentials.json`.
+
+### OpenCode (additional)
+
+- **bun** - JavaScript runtime for OpenCode plugins
+- **OpenCode 0.2.0+** - for session.start and session.stopping hooks (fallback works on older)
+
+Run `uv run python scripts/check-deps.py` to verify all dependencies are installed.
 
 ---
 

@@ -1,0 +1,6 @@
+{
+  "name": "ai-wiki-knowledge-opencode-plugin",
+  "version": "1.0.0",
+  "description": "Dependencies for AI-Wiki-knowledge OpenCode plugin",
+  "private": true
+}
