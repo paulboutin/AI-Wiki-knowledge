@@ -83,17 +83,7 @@ From there, your conversations start accumulating. After 6 PM local time, the ne
 
 ## How It Works
 
-```
-Conversation -> SessionEnd/Stop hooks -> flush.py extracts knowledge
-    -> daily/YYYY-MM-DD.md -> compile.py -> knowledge/concepts/, connections/, qa/
-        -> SessionStart hook injects index into next session -> cycle repeats
-```
-
-- **Hooks** capture conversations automatically (session end + pre-compaction safety net for Claude Code and Cursor)
-- **flush.py** calls the Claude Agent SDK to decide what's worth saving, and after 6 PM triggers end-of-day compilation automatically
-- **compile.py** turns daily logs into organized concept articles with cross-references (triggered automatically or run manually)
-- **query.py** answers questions using index-guided retrieval (no RAG needed at personal scale)
-- **lint.py** runs 7 health checks (broken links, orphans, contradictions, staleness)
+![Architecture diagram](docs/architecture.svg)
 
 ## Key Commands
 
