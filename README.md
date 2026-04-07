@@ -19,6 +19,44 @@ OpenCode itself is free and open-source — you only pay for the models you conn
 
 ## Quick Start
 
+### Fresh Project (no existing files)
+
+1. Clone this repo into your project:
+   ```bash
+   git clone https://github.com/paulboutin/AI-Wiki-knowledge.git
+   cd AI-Wiki-knowledge
+   uv sync
+   ```
+
+2. The hooks are already configured — they activate automatically when you open your AI coding tool in this project.
+
+### Existing Project (has AGENTS.md, pyproject.toml, etc.)
+
+Use the install script — it merges without overwriting:
+
+```bash
+# Clone into a temp directory
+git clone https://github.com/paulboutin/AI-Wiki-knowledge.git /tmp/ai-wiki
+
+# Run the installer (dry run first to preview)
+cd /tmp/ai-wiki
+uv run python scripts/install.py /path/to/your/project --dry-run
+
+# Install for real
+uv run python scripts/install.py /path/to/your/project
+
+# Clean up
+rm -rf /tmp/ai-wiki
+```
+
+The install script:
+- **Merges** `.gitignore` entries (doesn't overwrite)
+- **Merges** `pyproject.toml` dependencies (doesn't overwrite)
+- **Backs up** existing `AGENTS.md` and appends the knowledge base schema
+- **Creates** missing directories (`hooks/`, `scripts/`, `knowledge/`, etc.)
+- **Skips** files that already exist (your `LICENSE`, `AGENTS.md`, etc.)
+- **Copies** hook configs (`.claude/`, `.cursor/`, `.codex/`, `.opencode/`)
+
 ### Claude Code
 
 1. Clone this repo into your project:
