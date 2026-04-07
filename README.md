@@ -57,6 +57,18 @@ The install script:
 - **Skips** files that already exist (your `LICENSE`, `AGENTS.md`, etc.)
 - **Copies** hook configs (`.claude/`, `.cursor/`, `.codex/`, `.opencode/`)
 
+### New Team Member (project already has AI-Wiki-knowledge)
+
+No install script needed — everything is already in the repo:
+
+```bash
+git clone https://github.com/your-org/your-project.git
+cd your-project
+uv sync
+```
+
+That's it. The hooks, scripts, and shared `knowledge/` are all tracked in git. The new member's `daily/` folder is created automatically on their first session.
+
 ### Claude Code
 
 1. Clone this repo into your project:
