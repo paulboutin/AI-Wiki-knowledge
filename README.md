@@ -4,7 +4,17 @@
 
 Works with **Claude Code**, **OpenAI Codex CLI**, and **OpenCode CLI**. Adapted from [Karpathy's LLM Knowledge Base](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) architecture, but instead of clipping web articles, the raw data is your own AI coding conversations. When a session ends (or auto-compacts mid-session), hooks capture the conversation transcript and spawn a background process that uses the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) to extract the important stuff - decisions, lessons learned, patterns, gotchas - and appends it to a daily log. You then compile those daily logs into structured, cross-referenced knowledge articles organized by concept. Retrieval uses a simple index file instead of RAG - no vector database, no embeddings, just markdown.
 
-Anthropic has clarified that personal use of the Claude Agent SDK is covered under your existing Claude subscription (Max, Team, or Enterprise) - no separate API credits needed.
+## API Costs and Subscriptions
+
+This system uses the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) for memory extraction (the `flush.py` background process). Here's what you need to know about costs:
+
+| Platform | What you need | Cost |
+|----------|--------------|------|
+| **Claude Code** | Claude Max, Team, or Enterprise subscription | Included — personal use of the Agent SDK is covered |
+| **Codex CLI** | ChatGPT Plus, Pro, Business, or Enterprise | Uses your plan's credits — no separate API key needed |
+| **OpenCode** | Any API key (Anthropic, OpenAI, Google, etc.) | Pay per your model provider's rates, or use OpenCode Go ($10/mo) |
+
+OpenCode itself is free and open-source — you only pay for the models you connect to it.
 
 ## Quick Start
 
