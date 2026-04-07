@@ -13,6 +13,7 @@ This system uses the [Claude Agent SDK](https://github.com/anthropics/claude-age
 | **Claude Code** | Claude Max, Team, or Enterprise subscription | Included — personal use of the Agent SDK is covered |
 | **Codex CLI** | ChatGPT Plus, Pro, Business, or Enterprise | Uses your plan's credits — no separate API key needed |
 | **OpenCode** | Any API key (Anthropic, OpenAI, Google, etc.) | Pay per your model provider's rates, or use OpenCode Go ($10/mo) |
+| **Cursor** | Cursor Pro, Business, or Enterprise | Uses your plan's credits — no separate API key needed |
 
 OpenCode itself is free and open-source — you only pay for the models you connect to it.
 
