@@ -3,6 +3,8 @@
 import hashlib
 import json
 import re
+import subprocess
+import time
 from pathlib import Path
 
 from config import (
@@ -13,6 +15,7 @@ from config import (
     KNOWLEDGE_DIR,
     LOG_FILE,
     QA_DIR,
+    SCRIPTS_DIR,
     STATE_FILE,
 )
 
@@ -131,3 +134,139 @@ def build_index_entry(rel_path: str, summary: str, sources: str, updated: str) -
     """Build a single index table row."""
     link = rel_path.replace(".md", "")
     return f"| [[{link}]] | {summary} | {sources} | {updated} |"
+
+
+# ── Team / Collaboration ──────────────────────────────────────────────
+
+LOCK_FILE = SCRIPTS_DIR / ".compile.lock"
+LOCK_TIMEOUT = 120  # seconds before a lock is considered stale
+
+
+def get_contributor() -> str:
+    """Get the current git user.name for attribution."""
+    try:
+        result = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True, text=True, check=True, timeout=5,
+        )
+        name = result.stdout.strip()
+        return name if name else "anonymous"
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return "anonymous"
+
+
+def acquire_lock(timeout: int = LOCK_TIMEOUT) -> bool:
+    """Acquire compilation lock using atomic file creation.
+
+    Returns True if lock acquired, False if already held.
+    Cleans up stale locks older than timeout seconds.
+    """
+    if LOCK_FILE.exists():
+        # Check for stale lock
+        try:
+            age = time.time() - LOCK_FILE.stat().st_mtime
+            if age > timeout:
+                LOCK_FILE.unlink(missing_ok=True)
+            else:
+                return False
+        except OSError:
+            return False
+
+    try:
+        LOCK_FILE.write_text(
+            json.dumps({"pid": os.getpid(), "acquired_at": time.time()}),
+            encoding="utf-8",
+        )
+        return True
+    except OSError:
+        return False
+
+
+def release_lock() -> None:
+    """Release compilation lock."""
+    LOCK_FILE.unlink(missing_ok=True)
+
+
+def is_git_repo(path: Path | None = None) -> bool:
+    """Check if the given path (or project root) is inside a git repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True, text=True, check=True, timeout=5,
+            cwd=str(path) if path else str(ROOT_DIR),
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return False
+
+
+def git_pull_rebase(path: Path | None = None) -> bool:
+    """Run git pull --rebase. Returns True on success."""
+    try:
+        result = subprocess.run(
+            ["git", "pull", "--rebase", "--autostash"],
+            capture_output=True, text=True, check=True, timeout=60,
+            cwd=str(path) if path else str(ROOT_DIR),
+        )
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        import logging
+        logging.error("git pull --rebase failed: %s", e)
+        return False
+
+
+def git_commit_and_push(message: str, path: Path | None = None, max_retries: int = 3) -> bool:
+    """Add knowledge/, commit, and push with retry on conflict.
+
+    Returns True if push succeeded.
+    """
+    cwd = str(path) if path else str(ROOT_DIR)
+
+    for attempt in range(max_retries):
+        try:
+            # Stage knowledge/
+            subprocess.run(
+                ["git", "add", "knowledge/"],
+                capture_output=True, text=True, check=True, timeout=30,
+                cwd=cwd,
+            )
+
+            # Commit (may be no-op if nothing changed)
+            result = subprocess.run(
+                ["git", "commit", "-m", message],
+                capture_output=True, text=True, timeout=30,
+                cwd=cwd,
+            )
+            if result.returncode != 0 and "nothing to commit" in result.stdout:
+                return True  # nothing changed, consider success
+
+            # Push
+            result = subprocess.run(
+                ["git", "push"],
+                capture_output=True, text=True, timeout=60,
+                cwd=cwd,
+            )
+            if result.returncode == 0:
+                return True
+
+            # Push failed - pull and retry
+            if attempt < max_retries - 1:
+                import logging
+                logging.warning("Push failed (attempt %d/%d), pulling and retrying", attempt + 1, max_retries)
+                git_pull_rebase(path)
+                time.sleep(1)
+            else:
+                import logging
+                logging.error("Push failed after %d attempts: %s", max_retries, result.stderr)
+                return False
+
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+            import logging
+            logging.error("git commit/push error: %s", e)
+            if attempt < max_retries - 1:
+                git_pull_rebase(path)
+                time.sleep(1)
+            else:
+                return False
+
+    return False

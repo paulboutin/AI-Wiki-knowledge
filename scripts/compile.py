@@ -4,6 +4,13 @@ Compile daily conversation logs into structured knowledge articles.
 This is the "LLM compiler" - it reads daily logs (source code) and produces
 organized knowledge articles (the executable).
 
+In team mode (when knowledge/ is tracked in git), this script handles:
+- git pull --rebase before compilation
+- LLM-based deduplication against existing concepts
+- Contributor attribution from git user.name
+- git commit + push with retry on conflict
+- File locking to prevent concurrent compilation
+
 Usage:
     uv run python compile.py                    # compile new/changed logs only
     uv run python compile.py --all              # force recompile everything
@@ -15,7 +22,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import sys
+import time
 from pathlib import Path
 
 from config import AGENTS_FILE, CONCEPTS_DIR, CONNECTIONS_DIR, DAILY_DIR, KNOWLEDGE_DIR, now_iso
@@ -26,10 +35,91 @@ from utils import (
     load_state,
     read_wiki_index,
     save_state,
+    get_contributor,
+    acquire_lock,
+    release_lock,
+    is_git_repo,
+    git_pull_rebase,
+    git_commit_and_push,
 )
 
 # ── Paths for the LLM to use ──────────────────────────────────────────
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+logger = logging.getLogger(__name__)
+
+
+async def find_similar_concept(index_content: str, new_title: str, new_summary: str) -> str | None:
+    """Use LLM to check if a similar concept already exists in the knowledge base.
+
+    Returns the wikilink path of the matching article, or None if no match.
+    """
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ResultMessage,
+        TextBlock,
+        query,
+    )
+
+    prompt = f"""You are a deduplication assistant. Given an existing knowledge base index
+and a new concept, determine if any existing article already covers this topic.
+
+## Knowledge Base Index
+
+{index_content}
+
+## New Concept
+
+Title: {new_title}
+Summary: {new_summary}
+
+## Your Task
+
+Does any existing article in the index already cover this topic? Consider:
+- Exact title matches
+- Alias matches
+- Semantic similarity (e.g., "auth patterns" vs "authentication flow")
+
+If a match exists, respond with ONLY the wikilink path (e.g., "concepts/supabase-auth").
+If no match exists, respond with ONLY: NONE
+
+Do not explain your reasoning. Just the path or NONE."""
+
+    response = ""
+    try:
+        async for message in query(
+            prompt=prompt,
+            options=ClaudeAgentOptions(
+                cwd=str(ROOT_DIR),
+                allowed_tools=[],
+                max_turns=1,
+            ),
+        ):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        response += block.text
+            elif isinstance(message, ResultMessage):
+                pass
+    except Exception as e:
+        logger.error("Dedup check failed: %s", e)
+        return None
+
+    response = response.strip()
+    if response.upper() == "NONE" or not response:
+        return None
+
+    # Clean up the response - extract just the path
+    response = response.strip("[]\"'")
+    if response.startswith("[[") and response.endswith("]]"):
+        response = response[2:-2]
+
+    # Validate it looks like a valid path
+    if "/" in response or "\\" in response:
+        return response
+
+    return None
 
 
 async def compile_daily_log(log_path: Path, state: dict) -> float:
@@ -64,6 +154,8 @@ async def compile_daily_log(log_path: Path, state: dict) -> float:
 
     timestamp = now_iso()
 
+    contributor = get_contributor()
+
     prompt = f"""You are a knowledge compiler. Your job is to read a daily conversation log
 and extract knowledge into structured wiki articles.
 
@@ -82,6 +174,7 @@ and extract knowledge into structured wiki articles.
 ## Daily Log to Compile
 
 **File:** {log_path.name}
+**Contributor:** {contributor}
 
 {log_content}
 
@@ -95,18 +188,22 @@ Read the daily log above and compile it into wiki articles following the schema 
 2. **Create concept articles** in `knowledge/concepts/` - One .md file per concept
    - Use the exact article format from AGENTS.md (YAML frontmatter + sections)
    - Include `sources:` in frontmatter pointing to the daily log file
+   - Include `contributors:` in frontmatter with ["{contributor}"]
    - Use `[[concepts/slug]]` wikilinks to link to related concepts
    - Write in encyclopedia style - neutral, comprehensive
 3. **Create connection articles** in `knowledge/connections/` if this log reveals non-obvious
    relationships between 2+ existing concepts
 4. **Update existing articles** if this log adds new information to concepts already in the wiki
    - Read the existing article, add the new information, add the source to frontmatter
+   - Add "{contributor}" to the `contributors:` list in frontmatter if not already present
+   - Add the daily log as a new source in frontmatter
 5. **Update knowledge/index.md** - Add new entries to the table
    - Each entry: `| [[path/slug]] | One-line summary | source-file | {timestamp[:10]} |`
 6. **Append to knowledge/log.md** - Add a timestamped entry:
    ```
    ## [{timestamp}] compile | {log_path.name}
    - Source: daily/{log_path.name}
+   - Contributor: {contributor}
    - Articles created: [[concepts/x]], [[concepts/y]]
    - Articles updated: [[concepts/z]] (if any)
    ```
@@ -163,13 +260,8 @@ Read the daily log above and compile it into wiki articles following the schema 
     return cost
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Compile daily logs into knowledge articles")
-    parser.add_argument("--all", action="store_true", help="Force recompile all logs")
-    parser.add_argument("--file", type=str, help="Compile a specific daily log file")
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be compiled")
-    args = parser.parse_args()
-
+def _do_compile(args) -> None:
+    """Core compilation logic — runs after team-mode setup."""
     state = load_state()
 
     # Determine which files to compile
@@ -218,6 +310,52 @@ def main():
     articles = list_wiki_articles()
     print(f"\nCompilation complete. Total cost: ${total_cost:.2f}")
     print(f"Knowledge base: {len(articles)} articles")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Compile daily logs into knowledge articles")
+    parser.add_argument("--all", action="store_true", help="Force recompile all logs")
+    parser.add_argument("--file", type=str, help="Compile a specific daily log file")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be compiled")
+    args = parser.parse_args()
+
+    # ── Team mode: auto-detect git repo and handle sync ────────────────
+    team_mode = is_git_repo(ROOT_DIR)
+
+    if team_mode:
+        contributor = get_contributor()
+        print(f"Team mode enabled (contributor: {contributor})")
+
+        # Acquire lock to prevent concurrent compilation
+        if not acquire_lock():
+            print("Compilation already in progress on this machine, skipping.")
+            return
+
+        try:
+            # Pull latest shared knowledge before compiling
+            print("Pulling latest knowledge base...")
+            if not git_pull_rebase(ROOT_DIR):
+                print("Warning: git pull failed, compiling with local state.")
+
+            # Run compilation
+            _do_compile(args)
+
+            # Commit and push with retry
+            print("Pushing compiled knowledge to shared repo...")
+            success = git_commit_and_push(
+                f"compile: update from {contributor}",
+                path=ROOT_DIR,
+            )
+            if success:
+                print("Knowledge base synced successfully.")
+            else:
+                print("Warning: push failed — knowledge compiled locally but not synced.")
+                print("Run 'git push' manually when ready.")
+        finally:
+            release_lock()
+    else:
+        # Solo mode: no git sync needed
+        _do_compile(args)
 
 
 if __name__ == "__main__":

@@ -118,6 +118,32 @@ uv run python scripts/lint.py --structural-only      # free structural checks on
 
 Karpathy's insight: at personal scale (50-500 articles), the LLM reading a structured `index.md` outperforms vector similarity. The LLM understands what you're really asking; cosine similarity just finds similar words. RAG becomes necessary at ~2,000+ articles when the index exceeds the context window.
 
+## Team Usage
+
+This knowledge base is designed for shared team learning. Each developer's conversations are captured locally, but the compiled knowledge is shared across the team.
+
+### How It Works
+
+- **Daily logs are personal** — your `daily/` folder is gitignored, your conversations stay private
+- **Knowledge is shared** — compiled articles in `knowledge/` are tracked in git for the whole team
+- **Automatic sync** — `compile.py` handles git pull/commit/push automatically
+- **LLM deduplication** — detects when multiple developers discuss similar topics and merges them into one article
+- **Contributor attribution** — every article tracks who contributed to it via `git config user.name`
+
+### Setup for Teams
+
+1. Clone this repo into your project
+2. Each developer uses their preferred AI coding tool (Claude Code, Cursor, Codex, OpenCode)
+3. Hooks fire automatically — no extra configuration needed
+4. Knowledge compiles automatically after 6 PM or when you run `compile.py`
+
+### Conflict Resolution
+
+If two developers compile at the same time:
+- File locking prevents concurrent compilation on the same machine
+- `git pull --rebase` + retry handles cross-machine conflicts
+- Push retries up to 3 times before failing gracefully
+
 ## Viewing Your Knowledge in Obsidian
 
 The knowledge base is pure markdown with Obsidian-style `[[wikilinks]]` — it works natively as an Obsidian vault.

@@ -54,10 +54,25 @@ def save_flush_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
 
 
+def get_contributor() -> str:
+    """Get the current git user.name for attribution."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True, text=True, check=True, timeout=5,
+        )
+        name = result.stdout.strip()
+        return name if name else "anonymous"
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return "anonymous"
+
+
 def append_to_daily_log(content: str, section: str = "Session") -> None:
-    """Append content to today's daily log."""
+    """Append content to today's daily log with contributor attribution."""
     today = datetime.now(timezone.utc).astimezone()
     log_path = DAILY_DIR / f"{today.strftime('%Y-%m-%d')}.md"
+    contributor = get_contributor()
 
     if not log_path.exists():
         DAILY_DIR.mkdir(parents=True, exist_ok=True)
@@ -67,7 +82,7 @@ def append_to_daily_log(content: str, section: str = "Session") -> None:
         )
 
     time_str = today.strftime("%H:%M")
-    entry = f"### {section} ({time_str})\n\n{content}\n\n"
+    entry = f"### {section} ({time_str}) — *by {contributor}*\n\n{content}\n\n"
 
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(entry)

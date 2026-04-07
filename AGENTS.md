@@ -681,6 +681,47 @@ No API key needed - uses Claude Code's built-in credentials at `~/.claude/.crede
 
 Run `uv run python scripts/check-deps.py` to verify all dependencies are installed.
 
+### Team / Collaboration Mode
+
+The knowledge base supports multi-developer teams. When `knowledge/` is tracked in a git repo, `compile.py` automatically enters team mode.
+
+**How it works:**
+
+1. **Daily logs are personal** — `daily/` is gitignored, each developer's conversations stay local
+2. **Knowledge is shared** — `knowledge/` is tracked in git, compiled articles are available to everyone
+3. **Auto-sync on compile** — `compile.py` runs `git pull --rebase` before compiling and `git commit + push` after
+4. **File locking** — prevents concurrent compilation on the same machine via `scripts/.compile.lock`
+5. **Push retry** — if two developers push simultaneously, the loser pulls and retries (up to 3 times)
+6. **LLM deduplication** — before creating a new concept, the LLM checks if a similar article already exists and merges instead
+7. **Contributor attribution** — every article tracks contributors via `git config user.name`
+
+**Git sync flow:**
+```
+compile.py:
+  1. acquire_lock()          # prevent concurrent local compilation
+  2. git pull --rebase       # get latest shared knowledge
+  3. compile daily/ → knowledge/
+  4. git add knowledge/
+  5. git commit -m "compile: update from {contributor}"
+  6. git push                # retry on conflict (up to 3x)
+  7. release_lock()
+```
+
+**Article frontmatter with contributors:**
+```yaml
+---
+title: "Supabase Auth Patterns"
+contributors: ["alice", "bob"]
+sources:
+  - "daily/2026-04-06.md (alice)"
+  - "daily/2026-04-07.md (bob)"
+---
+```
+
+**Deduplication:** The `find_similar_concept()` function uses the Claude Agent SDK to compare new concepts against the existing `knowledge/index.md`. It checks for exact title matches, alias matches, and semantic similarity. If a match is found, the compiler updates the existing article instead of creating a duplicate.
+
+**Solo mode:** If `knowledge/` is not in a git repo, `compile.py` skips all git operations and works locally as before.
+
 ---
 
 ## Costs
