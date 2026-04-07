@@ -137,6 +137,36 @@ This knowledge base is designed for shared team learning. Each developer's conve
 3. Hooks fire automatically — no extra configuration needed
 4. Knowledge compiles automatically after 6 PM or when you run `compile.py`
 
+### Onboarding a New Team Member
+
+When a new developer joins the project, they simply pull the repo. Here's what happens:
+
+```bash
+# New developer clones the project
+git clone https://github.com/your-org/your-project.git
+cd your-project
+uv sync
+```
+
+**What they get immediately:**
+- **`knowledge/`** — the full shared knowledge base, already compiled from the team's past sessions
+- **Hooks** — configured and ready to fire on their first AI session
+- **Scripts** — `compile.py`, `query.py`, `lint.py` all available
+
+**What starts empty (personal):**
+- **`daily/`** — created automatically on their first session, gitignored, theirs alone
+- **`scripts/state.json`** — tracks their personal compilation state, gitignored
+
+**What they should do:**
+1. Make sure `git config user.name` is set (used for contributor attribution)
+2. Start using their AI coding tool — hooks fire automatically
+3. Run `uv run python scripts/query.py "what does this project know?"` to explore the existing knowledge base
+
+**What they should NOT do:**
+- Don't manually edit `knowledge/` articles — let the compiler handle it
+- Don't commit `daily/` files — they're personal and gitignored
+- Don't share `scripts/state.json` — it's machine-specific
+
 ### Conflict Resolution
 
 If two developers compile at the same time:

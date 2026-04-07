@@ -722,6 +722,29 @@ sources:
 
 **Solo mode:** If `knowledge/` is not in a git repo, `compile.py` skips all git operations and works locally as before.
 
+### New Developer Onboarding
+
+When a developer joins a project that already has AI-Wiki-knowledge set up:
+
+**What happens on `git pull`:**
+- `knowledge/` comes with all previously compiled articles — the new dev immediately has access to the team's accumulated knowledge
+- Hook configs (`.claude/`, `.cursor/`, `.codex/`, `.opencode/`) are already in place
+- Scripts are ready to run
+
+**What gets created locally (gitignored):**
+- `daily/` — personal conversation logs, created on first session
+- `scripts/state.json` — personal compilation state
+- `scripts/last-flush.json` — personal flush dedup state
+
+**First session flow for a new dev:**
+1. They open their AI coding tool in the project
+2. `sessionStart` hook fires → injects the existing `knowledge/index.md` into context
+3. They now have the team's full knowledge base at the start of their first session
+4. When their session ends, `sessionEnd` hook fires → captures their conversation → `daily/`
+5. Next `compile.py` run → their daily log gets compiled → `knowledge/` updated → pushed to shared repo
+
+**No manual setup required.** The system is fully self-configuring from the repo state.
+
 ---
 
 ## Costs
