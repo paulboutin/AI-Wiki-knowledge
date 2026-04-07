@@ -103,6 +103,44 @@ uv run python scripts/lint.py --structural-only      # free structural checks on
 
 Karpathy's insight: at personal scale (50-500 articles), the LLM reading a structured `index.md` outperforms vector similarity. The LLM understands what you're really asking; cosine similarity just finds similar words. RAG becomes necessary at ~2,000+ articles when the index exceeds the context window.
 
+## Viewing Your Knowledge in Obsidian
+
+The knowledge base is pure markdown with Obsidian-style `[[wikilinks]]` — it works natively as an Obsidian vault.
+
+### Quick Setup
+
+1. Open Obsidian
+2. **Open folder as vault** → select the `knowledge/` directory
+3. That's it — your knowledge base is now a fully functional vault
+
+### What You Get
+
+- **Graph View** — visualize how concepts connect. Each `[[wikilink]]` becomes an edge in the graph, revealing clusters of related knowledge.
+- **Backlinks panel** — see every article that links to the one you're reading. This is the compiled knowledge's cross-reference system in action.
+- **Full-text search** — instant search across all articles, daily logs, and Q&A entries.
+- **Outline view** — navigate article structure with the built-in outline pane.
+- **Tag browsing** — click any tag in an article's frontmatter to see all related articles.
+
+### Recommended Settings
+
+| Setting | Value | Why |
+|---------|-------|-----|
+| Strict frontmatter | On | Ensures YAML frontmatter is valid |
+| Detect all file extensions | On | Reads `.md` files correctly |
+| Use `[[wikilinks]]` | On (default) | Native support, no config needed |
+| Default location for new notes | Same folder as current note | Keeps articles organized |
+
+### Pro Tips
+
+- **Graph View filters**: Filter by folder (`concepts/`, `connections/`, `qa/`) to focus on specific knowledge types.
+- **Starred articles**: Star frequently referenced articles for quick access from the sidebar.
+- **Canvas**: Use Obsidian Canvas to manually map relationships between concepts for complex topics.
+- **Daily Notes**: The `daily/` directory can also be added as a secondary vault or viewed alongside — useful for reviewing raw session logs.
+
+### Mobile Access
+
+Sync the `knowledge/` folder via Obsidian Sync, iCloud, or any file sync service to browse your knowledge base on mobile. The markdown format is fully portable — no proprietary database or lock-in.
+
 ## Technical Reference
 
 See **[AGENTS.md](AGENTS.md)** for the complete technical reference: article formats, hook architecture, script internals, cross-platform details, costs, and customization options. AGENTS.md is designed to give an AI agent everything it needs to understand, modify, or rebuild the system.
