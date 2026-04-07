@@ -89,7 +89,7 @@ Conversation -> SessionEnd/Stop hooks -> flush.py extracts knowledge
         -> SessionStart hook injects index into next session -> cycle repeats
 ```
 
-- **Hooks** capture conversations automatically (session end + pre-compaction safety net for Claude Code)
+- **Hooks** capture conversations automatically (session end + pre-compaction safety net for Claude Code and Cursor)
 - **flush.py** calls the Claude Agent SDK to decide what's worth saving, and after 6 PM triggers end-of-day compilation automatically
 - **compile.py** turns daily logs into organized concept articles with cross-references (triggered automatically or run manually)
 - **query.py** answers questions using index-guided retrieval (no RAG needed at personal scale)
