@@ -298,6 +298,8 @@ ai-wiki-knowledge/
 |   |-- plugins/
 |   |   |-- knowledge-base.ts        # OpenCode plugin (TypeScript)
 |   |-- package.json                 # Empty, for future deps
+|-- .cursor/
+|   |-- hooks.json                   # Cursor IDE/CLI hook configuration
 |-- .gitignore                       # Excludes runtime state, temp files, caches
 |-- AGENTS.md                        # This file - schema + full technical reference
 |-- README.md                        # Concise overview + quick start
@@ -326,8 +328,12 @@ ai-wiki-knowledge/
 |   |   |-- session-start.py         #   Injects knowledge into every session
 |   |   |-- stop.py                  #   Extracts conversation -> daily log (Stop event)
 |   |-- opencode/                    # OpenCode CLI/TUI hooks
+|   |   |-- session-start.py         #   Injects knowledge into every session
+|   |   |-- stop.py                  #   Extracts conversation -> daily log
+|   |-- cursor/                      # Cursor IDE/CLI hooks
 |       |-- session-start.py         #   Injects knowledge into every session
-|       |-- stop.py                  #   Extracts conversation -> daily log
+|       |-- session-end.py           #   Extracts conversation -> daily log
+|       |-- pre-compact.py           #   Safety net: captures context before compaction
 |-- reports/                         # Lint reports (gitignored)
 ```
 
@@ -470,6 +476,52 @@ OpenCode uses a TypeScript plugin system (`.opencode/plugins/knowledge-base.ts`)
 
 Run `uv run python scripts/check-deps.py` to verify all dependencies are installed.
 
+#### Cursor IDE/CLI Hooks
+
+Cursor uses a JSON-configured hook system nearly identical to Claude Code's. Config lives in `.cursor/hooks.json` with a `version: 1` schema.
+
+**`.cursor/hooks.json` format:**
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "uv run python hooks/cursor/session-start.py" }],
+    "preCompact": [{ "command": "uv run python hooks/cursor/pre-compact.py" }],
+    "sessionEnd": [{ "command": "uv run python hooks/cursor/session-end.py" }]
+  }
+}
+```
+
+Hook events use **camelCase** (not PascalCase like Claude Code).
+
+**`session-start.py`** (sessionStart)
+- Same logic as Claude/Codex versions
+- Output format adapted for Cursor: `{ "additional_context": "...", "env": {} }`
+- Cursor injects this as additional context in the conversation's initial system prompt
+- Also accepts `session_id` and `is_background_agent` fields from stdin
+
+**`session-end.py`** (sessionEnd)
+- Same architecture as Claude Code version
+- Reads `transcript_path` from stdin JSON (same field name)
+- Also receives `session_id`, `reason`, `duration_ms`, `final_status` from stdin
+- Extracts conversation context, spawns `flush.py` as background process
+- Fire-and-forget — no output expected
+
+**`pre-compact.py`** (preCompact)
+- Same architecture as Claude Code version
+- Receives `trigger`, `context_usage_percent`, `context_tokens`, `message_count` from stdin
+- Output: `{ "user_message": "Context compacted — memory captured." }`
+- Critical for long sessions: captures context before summarization discards it
+
+**Cursor-specific features:**
+- `CURSOR_TRANSCRIPT_PATH` env variable also provides the transcript path
+- `CURSOR_PROJECT_DIR` env variable provides the workspace root
+- `CLAUDE_PROJECT_DIR` alias also set for compatibility
+- Hooks run from the **project root** — relative paths work as expected
+- Auto-reloads `hooks.json` on save
+
+**Third-party skills compatibility:** Cursor can run Claude Code hooks directly when "Third-party skills" is enabled in Settings → Features. This is an alternative to the native Cursor hooks but the native approach is cleaner.
+
 ### Background Flush Process (`flush.py`)
 
 Spawned by Claude, Codex, and OpenCode hooks as a fully detached background process:
@@ -505,22 +557,23 @@ Content can be a string or a list of blocks (`{"type": "text", "text": "..."}` d
 - **Claude Code:** Provided via `transcript_path` in hook stdin
 - **Codex CLI:** Provided via `transcript_path` in hook stdin
 - **OpenCode:** `~/.local/share/opencode/{sessionID}.jsonl` (or project-specific/global subdirectories)
+- **Cursor:** Provided via `transcript_path` in hook stdin + `CURSOR_TRANSCRIPT_PATH` env var
 
 ### Platform Comparison
 
-| Aspect | Claude Code | Codex CLI | OpenCode CLI/TUI |
-|--------|-------------|-----------|------------------|
-| Session start | SessionStart | SessionStart | session.start |
-| Session end | SessionEnd | Stop | session.stopping |
-| Pre-compaction | PreCompact | Not available | Not available |
-| Fallback | N/A | N/A | tool.execute.after |
-| Config file | `.claude/settings.json` | `.codex/hooks.json` + `config.toml` flag | `.opencode/plugins/` (auto-discover) |
-| Hook input | JSON on stdin | JSON on stdin | Plugin context object |
-| Hook output | JSON on stdout | JSON on stdout | additionalInstructions |
-| Transcript | JSONL format | JSONL format | JSONL format |
-| Feature flag | None (always on) | `codex_hooks = true` in config.toml | None (auto-discover) |
-| Runtime | Python | Python | TypeScript (Bun) → Python |
-| Web support | N/A | N/A | No (CLI/TUI only) |
+| Aspect | Claude Code | Codex CLI | OpenCode CLI/TUI | Cursor IDE/CLI |
+|--------|-------------|-----------|------------------|----------------|
+| Session start | SessionStart | SessionStart | session.start | sessionStart |
+| Session end | SessionEnd | Stop | session.stopping | sessionEnd |
+| Pre-compaction | PreCompact | Not available | Not available | preCompact |
+| Fallback | N/A | N/A | tool.execute.after | N/A |
+| Config file | `.claude/settings.json` | `.codex/hooks.json` + `config.toml` flag | `.opencode/plugins/` (auto-discover) | `.cursor/hooks.json` |
+| Hook input | JSON on stdin | JSON on stdin | Plugin context object | JSON on stdin |
+| Hook output | JSON on stdout | JSON on stdout | additionalInstructions | JSON on stdout |
+| Transcript | JSONL format | JSONL format | JSONL format | JSONL format |
+| Feature flag | None (always on) | `codex_hooks = true` in config.toml | None (auto-discover) | None (always on) |
+| Runtime | Python | Python | TypeScript (Bun) → Python | Python |
+| Web support | N/A | N/A | No (CLI/TUI only) | IDE + CLI |
 
 ---
 

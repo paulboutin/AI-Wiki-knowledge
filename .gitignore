@@ -30,6 +30,9 @@ scripts/uv.lock
 # OpenCode local settings
 .opencode/config.local.json
 
+# Cursor local settings
+.cursor/hooks.local.json
+
 # OS files
 .DS_Store
 Thumbs.db

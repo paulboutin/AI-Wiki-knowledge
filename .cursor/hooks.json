@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "uv run python hooks/cursor/session-start.py"
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "uv run python hooks/cursor/pre-compact.py"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "uv run python hooks/cursor/session-end.py"
+      }
+    ]
+  }
+}
