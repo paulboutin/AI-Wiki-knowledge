@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python hooks/codex/session-start.py",
+            "statusMessage": "Loading knowledge base context"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python hooks/codex/stop.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

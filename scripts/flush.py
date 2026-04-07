@@ -14,6 +14,7 @@ from __future__ import annotations
 # Recursion prevention: set this BEFORE any imports that might trigger Claude
 import os
 os.environ["CLAUDE_INVOKED_BY"] = "memory_flush"
+os.environ["CODEX_INVOKED_BY"] = "memory_flush"
 
 import asyncio
 import json

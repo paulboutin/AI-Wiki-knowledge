@@ -1,33 +1,52 @@
-# LLM Personal Knowledge Base
+# AI-Wiki Knowledge Base
 
 **Your AI conversations compile themselves into a searchable knowledge base.**
 
-Adapted from [Karpathy's LLM Knowledge Base](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) architecture, but instead of clipping web articles, the raw data is your own conversations with Claude Code. When a session ends (or auto-compacts mid-session), Claude Code hooks capture the conversation transcript and spawn a background process that uses the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) to extract the important stuff - decisions, lessons learned, patterns, gotchas - and appends it to a daily log. You then compile those daily logs into structured, cross-referenced knowledge articles organized by concept. Retrieval uses a simple index file instead of RAG - no vector database, no embeddings, just markdown.
+Works with both **Claude Code** and **OpenAI Codex CLI**. Adapted from [Karpathy's LLM Knowledge Base](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) architecture, but instead of clipping web articles, the raw data is your own AI coding conversations. When a session ends (or auto-compacts mid-session), hooks capture the conversation transcript and spawn a background process that uses the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) to extract the important stuff - decisions, lessons learned, patterns, gotchas - and appends it to a daily log. You then compile those daily logs into structured, cross-referenced knowledge articles organized by concept. Retrieval uses a simple index file instead of RAG - no vector database, no embeddings, just markdown.
 
-Anthropic has clarified that personal use of the Claude Agent SDK is covered under your existing Claude subscription (Max, Team, or Enterprise) - no separate API credits needed. Unlike OpenClaw, which requires API billing for its memory flush, this runs on your subscription.
+Anthropic has clarified that personal use of the Claude Agent SDK is covered under your existing Claude subscription (Max, Team, or Enterprise) - no separate API credits needed.
 
 ## Quick Start
 
-Tell your AI coding agent:
+### Claude Code
 
-> "Clone https://github.com/coleam00/claude-memory-compiler into this project. Set up the Claude Code hooks so my conversations automatically get captured into daily logs, compiled into a knowledge base, and injected back into future sessions. Read the AGENTS.md for the full technical reference on how everything works."
+1. Clone this repo into your project:
+   ```bash
+   git clone https://github.com/paulboutin/AI-Wiki-knowledge.git
+   cd AI-Wiki-knowledge
+   uv sync
+   ```
 
-The agent will:
-1. Clone the repo and run `uv sync` to install dependencies
-2. Copy `.claude/settings.json` into your project (or merge the hooks into your existing settings)
-3. The hooks activate automatically next time you open Claude Code
+2. The hooks are already configured in `.claude/settings.json` - they activate automatically when you open Claude Code in this project.
+
+### Codex CLI
+
+1. Clone this repo into your project:
+   ```bash
+   git clone https://github.com/paulboutin/AI-Wiki-knowledge.git
+   cd AI-Wiki-knowledge
+   uv sync
+   ```
+
+2. Enable hooks in your `~/.codex/config.toml`:
+   ```toml
+   [features]
+   codex_hooks = true
+   ```
+
+3. The repo-local hooks in `.codex/hooks.json` activate automatically when you run Codex in this project.
 
 From there, your conversations start accumulating. After 6 PM local time, the next session flush automatically triggers compilation of that day's logs into knowledge articles. You can also run `uv run python scripts/compile.py` manually at any time.
 
 ## How It Works
 
 ```
-Conversation -> SessionEnd/PreCompact hooks -> flush.py extracts knowledge
+Conversation -> SessionEnd/Stop hooks -> flush.py extracts knowledge
     -> daily/YYYY-MM-DD.md -> compile.py -> knowledge/concepts/, connections/, qa/
         -> SessionStart hook injects index into next session -> cycle repeats
 ```
 
-- **Hooks** capture conversations automatically (session end + pre-compaction safety net)
+- **Hooks** capture conversations automatically (session end + pre-compaction safety net for Claude Code)
 - **flush.py** calls the Claude Agent SDK to decide what's worth saving, and after 6 PM triggers end-of-day compilation automatically
 - **compile.py** turns daily logs into organized concept articles with cross-references (triggered automatically or run manually)
 - **query.py** answers questions using index-guided retrieval (no RAG needed at personal scale)
@@ -42,6 +61,18 @@ uv run python scripts/query.py "question" --file-back # ask + save answer back
 uv run python scripts/lint.py                        # run health checks
 uv run python scripts/lint.py --structural-only      # free structural checks only
 ```
+
+## Platform Comparison
+
+| Feature | Claude Code | Codex CLI |
+|---------|-------------|-----------|
+| Session start context injection | SessionStart hook | SessionStart hook |
+| Session end capture | SessionEnd hook | Stop hook |
+| Pre-compaction safety net | PreCompact hook | Not available |
+| Hook config | `.claude/settings.json` | `.codex/hooks.json` + `config.toml` flag |
+| Transcript format | JSONL | JSONL |
+
+**Note:** Codex does not have a `PreCompact` event equivalent. Long-running Codex sessions may lose intermediate context to auto-compaction before the `Stop` hook fires. For critical sessions, run `compile.py` manually before the session ends.
 
 ## Why No RAG?
 

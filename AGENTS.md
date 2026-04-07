@@ -289,9 +289,11 @@ Output: a markdown report with severity levels (error, warning, suggestion).
 ## Full Project Structure
 
 ```
-llm-personal-kb/
+ai-wiki-knowledge/
 |-- .claude/
-|   |-- settings.json                # Hook configuration (auto-activates in Claude Code)
+|   |-- settings.json                # Claude Code hook configuration
+|-- .codex/
+|   |-- hooks.json                   # Codex CLI hook configuration
 |-- .gitignore                       # Excludes runtime state, temp files, caches
 |-- AGENTS.md                        # This file - schema + full technical reference
 |-- README.md                        # Concise overview + quick start
@@ -310,10 +312,14 @@ llm-personal-kb/
 |   |-- flush.py                     #   Extract memories from conversations (background)
 |   |-- config.py                    #   Path constants
 |   |-- utils.py                     #   Shared helpers
-|-- hooks/                           # Claude Code hooks
-|   |-- session-start.py             #   Injects knowledge into every session
-|   |-- session-end.py               #   Extracts conversation -> daily log
-|   |-- pre-compact.py               #   Safety net: captures context before compaction
+|-- hooks/
+|   |-- claude/                      # Claude Code hooks
+|   |   |-- session-start.py         #   Injects knowledge into every session
+|   |   |-- session-end.py           #   Extracts conversation -> daily log
+|   |   |-- pre-compact.py           #   Safety net: captures context before compaction
+|   |-- codex/                       # Codex CLI hooks
+|       |-- session-start.py         #   Injects knowledge into every session
+|       |-- stop.py                  #   Extracts conversation -> daily log (Stop event)
 |-- reports/                         # Lint reports (gitignored)
 ```
 
@@ -321,23 +327,61 @@ llm-personal-kb/
 
 ## Hook System (Automatic Capture)
 
-Hooks are configured in `.claude/settings.json` and fire automatically when you use Claude Code in this project.
+Hooks are configured in `.claude/settings.json` (Claude Code) or `.codex/hooks.json` (Codex CLI) and fire automatically when you use the respective agent in this project.
 
-### `.claude/settings.json` Format
+### Claude Code Hook Configuration
+
+`.claude/settings.json` format:
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "uv run python hooks/session-start.py", "timeout": 15 }] }],
-    "PreCompact": [{ "matcher": "", "hooks": [{ "type": "command", "command": "uv run python hooks/pre-compact.py", "timeout": 10 }] }],
-    "SessionEnd": [{ "matcher": "", "hooks": [{ "type": "command", "command": "uv run python hooks/session-end.py", "timeout": 10 }] }]
+    "SessionStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "uv run python hooks/claude/session-start.py", "timeout": 15 }] }],
+    "PreCompact": [{ "matcher": "", "hooks": [{ "type": "command", "command": "uv run python hooks/claude/pre-compact.py", "timeout": 10 }] }],
+    "SessionEnd": [{ "matcher": "", "hooks": [{ "type": "command", "command": "uv run python hooks/claude/session-end.py", "timeout": 10 }] }]
   }
 }
 ```
 
 Commands use simple relative paths from the project root. Empty `matcher` catches all events.
 
+### Codex CLI Hook Configuration
+
+`.codex/hooks.json` format:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "startup|resume",
+      "hooks": [{
+        "type": "command",
+        "command": "uv run python hooks/codex/session-start.py",
+        "statusMessage": "Loading knowledge base context"
+      }]
+    }],
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "uv run python hooks/codex/stop.py",
+        "timeout": 30
+      }]
+    }]
+  }
+}
+```
+
+**Required:** Enable hooks in your `~/.codex/config.toml`:
+```toml
+[features]
+codex_hooks = true
+```
+
+Codex discovers hooks from `.codex/hooks.json` next to active config layers. Commands run with the session cwd as their working directory.
+
 ### Hook Details
+
+#### Claude Code Hooks
 
 **`session-start.py`** (SessionStart)
 - Pure local I/O, no API calls, runs in under 1 second
@@ -348,7 +392,7 @@ Commands use simple relative paths from the project root. Empty `matcher` catche
 
 **`session-end.py`** (SessionEnd)
 - Reads hook input from stdin (JSON with `session_id`, `transcript_path`, `cwd`)
-- Copies the raw JSONL transcript to a temp file (no parsing in the hook - keeps it fast)
+- Extracts conversation context from JSONL transcript
 - Spawns `flush.py` as a fully detached background process
 - Recursion guard: exits immediately if `CLAUDE_INVOKED_BY` env var is set
 
@@ -360,16 +404,32 @@ Commands use simple relative paths from the project root. Empty `matcher` catche
 
 **Why both PreCompact and SessionEnd?** Long-running sessions may trigger multiple auto-compactions before you close the session. Without PreCompact, intermediate context is lost to summarization before SessionEnd ever fires.
 
+#### Codex CLI Hooks
+
+**`session-start.py`** (SessionStart)
+- Same logic as the Claude Code version
+- Outputs JSON with `additionalContext` for Codex's SessionStart event
+- Matcher filters on `startup|resume` source values
+
+**`stop.py`** (Stop)
+- Codex's equivalent to SessionEnd - fires when the session ends
+- Reads JSON from stdin (session_id, transcript_path, cwd, hook_event_name, model)
+- Extracts conversation context from JSONL transcript
+- Spawns `flush.py` as a background process with `CLAUDE_INVOKED_BY` env var set
+- Returns without continuing the session (lets it end normally)
+
+**No PreCompact equivalent in Codex:** Codex does not have a pre-compaction event. Long-running Codex sessions may lose intermediate context to auto-compaction before the Stop hook fires. For critical sessions, run `compile.py` manually before the session ends.
+
 ### Background Flush Process (`flush.py`)
 
-Spawned by both hooks as a fully detached background process:
+Spawned by both Claude and Codex hooks as a fully detached background process:
 - **Windows:** `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS` flags
 - **Mac/Linux:** `start_new_session=True`
 
-This ensures flush.py survives after Claude Code's hook process exits.
+This ensures flush.py survives after the hook process exits.
 
 **What flush.py does:**
-1. Sets `CLAUDE_INVOKED_BY=memory_flush` env var (prevents recursive hook firing)
+1. Sets `CLAUDE_INVOKED_BY=memory_flush` and `CODEX_INVOKED_BY=memory_flush` env vars (prevents recursive hook firing)
 2. Reads the pre-extracted conversation context from the temp `.md` file
 3. Skips if context is empty or if same session was flushed within 60 seconds (deduplication)
 4. Calls Claude Agent SDK (`query()` with `allowed_tools=[]`, `max_turns=2`)
@@ -380,7 +440,7 @@ This ensures flush.py survives after Claude Code's hook process exits.
 
 ### JSONL Transcript Format
 
-Claude Code stores conversations as `.jsonl` files. Messages are nested under a `message` key:
+Both Claude Code and Codex store conversations as `.jsonl` files. Messages are nested under a `message` key:
 
 ```python
 entry = json.loads(line)
@@ -390,6 +450,19 @@ content = msg.get("content", "")  # string or list of content blocks
 ```
 
 Content can be a string or a list of blocks (`{"type": "text", "text": "..."}` dicts).
+
+### Platform Comparison
+
+| Aspect | Claude Code | Codex CLI |
+|--------|-------------|-----------|
+| Session start | SessionStart | SessionStart |
+| Session end | SessionEnd | Stop |
+| Pre-compaction | PreCompact | Not available |
+| Config file | `.claude/settings.json` | `.codex/hooks.json` + `config.toml` flag |
+| Hook input | JSON on stdin | JSON on stdin |
+| Hook output | JSON on stdout | JSON on stdout |
+| Transcript | JSONL format | JSONL format |
+| Feature flag | None (always on) | `codex_hooks = true` in config.toml |
 
 ---
 
