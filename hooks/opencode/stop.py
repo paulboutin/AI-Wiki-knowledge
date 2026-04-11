@@ -21,7 +21,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 DAILY_DIR = ROOT / "daily"
 SCRIPTS_DIR = ROOT / "scripts"
 STATE_DIR = SCRIPTS_DIR
@@ -33,7 +33,7 @@ else:
     TRANSCRIPT_DIR = Path.home() / ".local" / "share" / "opencode"
 
 logging.basicConfig(
-    filename=str(SCRIPTS_DIR / "flush.log"),
+    filename=str(ROOT / "hooks" / "scripts" / "flush.log"),
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [opencode-stop] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",

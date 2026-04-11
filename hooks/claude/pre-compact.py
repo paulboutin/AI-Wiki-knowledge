@@ -24,12 +24,12 @@ from pathlib import Path
 if os.environ.get("CLAUDE_INVOKED_BY"):
     sys.exit(0)
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 SCRIPTS_DIR = ROOT / "scripts"
 STATE_DIR = SCRIPTS_DIR
 
 logging.basicConfig(
-    filename=str(SCRIPTS_DIR / "flush.log"),
+    filename=str(ROOT / "hooks" / "scripts" / "flush.log"),
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [pre-compact] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
