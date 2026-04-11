@@ -21,6 +21,7 @@ Configure in .codex/hooks.json:
 """
 
 import json
+import logging
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -69,6 +70,14 @@ def build_context() -> str:
         context = context[:MAX_CONTEXT_CHARS] + "\n\n...(truncated)"
 
     return context
+
+
+logging.basicConfig(
+    filename=str(ROOT / "hooks" / "scripts" / "session-start.log"),
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [hook] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 
 def main():
